@@ -1,19 +1,26 @@
-const bcryptjs = require('bcryptjs');
-const pool = require('../db/pool');
+const db = require('../db/queries');
+const bcrypt = require('bcryptjs');
 
 exports.signup = async (req, res) => {
   const { username, fullname, password } = req.body;
   try {
-    const hashedPassword = await bcryptjs.hash(password, 10);
+    if (!username || !fullname || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
 
-    await pool.query(
-      'INSERT INTO users(username, fullname, password) VALUES ($1, $2, $3)',
-      [username, fullname, hashedPassword]
-    );
+    // Check if user already exists
+    const { rows } = await db.getUserByName(username);
+    if (rows.length > 0) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10); // Hash before storing
+    await db.signUp(username, fullname, hashedPassword);
 
     res.status(201).json('User registered successfully');
   } catch (error) {
-    res.status(500).json({ error: 'User already exists or database error' });
+    console.log('Database Error:', error);
+    res.status(500).json({ error: error.message });
   }
 };
 exports.login = (req, res) => {

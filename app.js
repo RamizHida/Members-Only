@@ -3,6 +3,7 @@ require('dotenv').config();
 const session = require('express-session');
 const passport = require('passport');
 const bcryptjs = require('bcryptjs');
+const db = require('./db/queries');
 const pool = require('./db/pool');
 const pgSession = require('connect-pg-simple')(session);
 const LocalStrategy = require('passport-local').Strategy;
@@ -20,7 +21,11 @@ app.use(express.urlencoded({ extended: true }));
 // Initialize session middleware
 app.use(
   session({
-    store: new pgSession({ pool }),
+    store: new pgSession({
+      pool,
+      tableName: 'session',
+      createTableIfMissing: true,
+    }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -40,20 +45,27 @@ app.use('/messages', messageRouter);
 passport.use(
   new LocalStrategy(async (username, password, done) => {
     try {
-      const { rows } = await pool.query(
-        'SELECT * FROM users WHERE username = $1',
-        [username]
-      );
+      const { rows } = await db.getUserByName(username);
       const user = rows[0];
+
+      console.log(user, 'user OBJ');
 
       if (!user) {
         return done(null, false, { message: 'Incorrect username' });
       }
 
-      const isMatch = await bcryptjs.compare(password, user.password);
+      if (!user.password) {
+        return done(null, false, {
+          message: 'Password is missing for this user',
+        });
+      }
+      const hashedPassword = user.password.toString('utf-8'); // Convert buffer to string
+
+      const isMatch = await bcryptjs.compare(password, hashedPassword);
 
       if (!isMatch) return done(null, false, { message: 'Invalid Password ' });
 
+      console.log('User authenticated successfully');
       return done(null, user);
     } catch (error) {
       return done(error);
@@ -67,10 +79,7 @@ passport.serializeUser((user, done) => {
 });
 passport.deserializeUser(async (id, done) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [
-      id,
-    ]);
-
+    const { rows } = await db.getUserById(id);
     const user = rows[0];
 
     if (!user) {
